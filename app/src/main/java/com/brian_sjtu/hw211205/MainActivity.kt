@@ -16,6 +16,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.rememberImagePainter
 import com.brian_sjtu.hw211205.ui.theme.HW211205Theme
+import com.google.android.exoplayer2.ExoPlayer
+import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.ui.PlayerView
 import okhttp3.ResponseBody
 import org.json.JSONObject
@@ -29,14 +31,14 @@ import retrofit2.http.Query
 class MainActivity : ComponentActivity() {
     var title = mutableStateOf("title")
     var imgUrl =  mutableStateOf("")
-    var videoUrl = mutableStateOf("")
 
-    val dyList = Retrofit.Builder()
+    val dyList: DYList = Retrofit.Builder()
         .baseUrl("https://creator.douyin.com/")
         .build().create(DYList::class.java)
-    val dyUrl = Retrofit.Builder()
+    val dyUrl: DYUrl = Retrofit.Builder()
         .baseUrl("https://api.oick.cn/")
-        .build().create(DYList::class.java)
+        .build().create(DYUrl::class.java)
+    var player : ExoPlayer? = null
 
     class DYItem {
         var title = ""
@@ -47,7 +49,7 @@ class MainActivity : ComponentActivity() {
 //    var Items: Array<DYItem>
     var dyItem = DYItem()
 
-    object ListCallback : Callback<ResponseBody> {
+    inner class ListCallback : Callback<ResponseBody> {
         override fun onFailure(call: Call<ResponseBody>, t: Throwable) {}
         override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
             val jsObj = JSONObject(response.body()?.string()?:"")
@@ -55,27 +57,36 @@ class MainActivity : ComponentActivity() {
                 .getJSONObject(0)
                 .getJSONArray("extra_list")
                 .getJSONObject(0)
-            obj.getString("title")
-            obj.getString("img_url")
-            obj.getString("link")
+            dyItem.title = obj.getString("title")
+            dyItem.imgUrl = obj.getString("img_url")
+            dyItem.shareUrl =  obj.getString("link")
+            dyUrl.getUrl(dyItem.shareUrl).enqueue(UrlCallback())
         }
     }
 
-    object UrlCallback : Callback<ResponseBody> {
+    inner class UrlCallback : Callback<ResponseBody> {
         override fun onFailure(call: Call<ResponseBody>, t: Throwable) {}
         override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
             val jsObj = JSONObject(response.body()?.string()?:"")
-            jsObj.getString("play")
+            dyItem.playUrl = jsObj.getString("play")
+            title.value = dyItem.title
+            imgUrl.value = dyItem.imgUrl
+            player?.setMediaItem(MediaItem.fromUri(dyItem.playUrl))
         }
+    }
+
+    val clickCallback: ()->Unit = {
+        dyList.getList().enqueue(ListCallback())
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        player = ExoPlayer.Builder(applicationContext).build()
         setContent {
             HW211205Theme {
                 // A surface container using the 'background' color from the theme
                 Surface(color = MaterialTheme.colors.background) {
-                    Greeting(title.value, imgUrl.value, videoUrl.value)
+                    Greeting(title.value, imgUrl.value, player, clickCallback)
                 }
             }
         }
@@ -93,17 +104,22 @@ interface DYUrl {
 }
 
 @Composable
-fun Greeting(title: String, imgUrl: String, videoUrl: String) {
-    Column() {
-        Row() {
-            Image(painter = rememberImagePainter(data = imgUrl), contentDescription = "")
-            Text(text = title)
-            Button(onClick = {}) {
+fun Greeting(title: String, imgUrl: String, video: ExoPlayer?, click: ()->Unit) {
+    Column {
+        Row {
+            Button(onClick = click) {
                 Text(text = "refresh")
             }
+            Image(
+                painter = rememberImagePainter(data = imgUrl),
+                contentDescription = ""
+            )
+            Text(text = title)
         }
         AndroidView(factory = {
-            PlayerView(it)
+            val view = PlayerView(it)
+            view.player = video
+            view
         })
     }
 }
@@ -112,6 +128,6 @@ fun Greeting(title: String, imgUrl: String, videoUrl: String) {
 @Composable
 fun DefaultPreview() {
     HW211205Theme {
-        Greeting("", "", "")
+        Greeting("title", "", null){}
     }
 }
